@@ -1,5 +1,6 @@
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h> // 🔥 이미지 사용을 위해 추가!
+#include <SDL2/SDL_image.h> 
+#include <SDL2/SDL_mixer.h> // 오디오 라이브러리
 #include <stdio.h> 
 #include <stdbool.h>
 #include <stdlib.h> 
@@ -8,7 +9,7 @@
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 600;
 const int TARGET_Y = 500;
-const int TARGET_HEIGHT = 80; // 화살표 크기에 맞춰 판정선 두께를 조금 키웠습니다
+const int TARGET_HEIGHT = 80;
 
 #define MAX_NOTES 10 
 
@@ -21,36 +22,31 @@ typedef struct {
 int main(int argc, char* argv[]) {
     srand((unsigned int)time(NULL)); 
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) return 1;
+    // 1. 시스템 초기화 (비디오 & 오디오)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1; 
+    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) return 1;
     
-    // 🔥 PNG 이미지 로드 기능 초기화
-    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) {
-        printf("SDL_image 초기화 실패: %s\n", IMG_GetError());
+    // 오디오 믹서 초기화
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
+        printf("오디오 초기화 실패: %s\n", Mix_GetError());
         return 1;
     }
 
-    SDL_Window* window = SDL_CreateWindow("4-Key Rhythm Drop", 
-                                          SDL_WINDOWPOS_CENTERED, 
-                                          SDL_WINDOWPOS_CENTERED, 
-                                          WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
+    SDL_Window* window = SDL_CreateWindow("4-Key Rhythm Drop", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) return 1;
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
-    // 🔥 화살표 텍스처(이미지) 4개를 저장할 배열
+    // 2. 이미지 텍스처 불러오기
     SDL_Texture* arrowTextures[4];
     arrowTextures[0] = IMG_LoadTexture(renderer, "left.png");
     arrowTextures[1] = IMG_LoadTexture(renderer, "up.png");
     arrowTextures[2] = IMG_LoadTexture(renderer, "down.png");
     arrowTextures[3] = IMG_LoadTexture(renderer, "right.png");
 
-    // 이미지가 잘 불러와졌는지 확인
-    for(int i = 0; i < 4; i++) {
-        if(!arrowTextures[i]) {
-            printf("이미지 로드 실패! 폴더에 left.png, up.png, down.png, right.png가 있는지 확인하세요.\n");
-            return 1;
-        }
-    }
+    // 3. 음악 및 효과음 파일 불러오기 (전부 wav 형식)
+    Mix_Music *bgm = Mix_LoadMUS("bgm.wav");
+    Mix_Chunk *hitSound = Mix_LoadWAV("hit.wav");
 
     bool isRunning = true;
     SDL_Event event;
@@ -60,7 +56,6 @@ int main(int argc, char* argv[]) {
     
     float noteSpeed = 4.0f;       
     int score = 50;                
-    
     int spawnTimer = 0;       
     int spawnRate = 60;       
     
@@ -69,11 +64,14 @@ int main(int argc, char* argv[]) {
     int laneX[4] = { 200, 300, 400, 500 }; 
 
     printf("====================================\n");
-    printf(" 🎮 화살표 그래픽 모드 시작!\n");
+    printf(" 🎧 음악과 함께하는 리듬 게임 시작!\n");
     printf("====================================\n\n");
 
+    // 배경 음악 재생 시작!
+    if (bgm) Mix_PlayMusic(bgm, -1);
+
     while (isRunning) {
-        // 1. 이벤트 처리
+        // --- 1. 입력 처리 ---
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) isRunning = false;
             
@@ -94,11 +92,16 @@ int main(int argc, char* argv[]) {
                                 laneFeedbackTimer[pressedLane] = 15;
                                 hitSomething = true;
                                 notes[i].active = false; 
+                                
+                                // 타격음 재생
+                                if (hitSound) Mix_PlayChannel(-1, hitSound, 0);
+                                
                                 printf("[HIT!] 점수: %d / 150\n", score);
                                 break; 
                             }
                         }
                     }
+                    // 허공에 눌렀을 때
                     if (!hitSomething) {
                         score -= 5;
                         laneFeedbackType[pressedLane] = 2; 
@@ -106,12 +109,18 @@ int main(int argc, char* argv[]) {
                         printf("[BAD!] 잘못 눌렀습니다. 점수: %d / 150\n", score);
                     }
 
-                    if (score >= 150 || score <= 0) isRunning = false; 
+                    if (score >= 150) { 
+                        printf("\n 🎉 [ 게임 클리어! ] 150점 달성! 🎉\n\n");
+                        isRunning = false; 
+                    } else if (score <= 0) {
+                        printf("\n 💀 [ 게임 오버... ] 점수가 0점이 되었습니다. 💀\n\n");
+                        isRunning = false; 
+                    }
                 }
             }
         }
 
-        // 2. 로직 업데이트
+        // --- 2. 로직 업데이트 ---
         if (isRunning) {
             spawnTimer++;
             if (spawnTimer >= spawnRate) {
@@ -131,13 +140,19 @@ int main(int argc, char* argv[]) {
             for (int i = 0; i < MAX_NOTES; i++) {
                 if (notes[i].active) {
                     notes[i].y += noteSpeed;
+                    
+                    // 바닥에 떨어뜨렸을 때
                     if (notes[i].y > WINDOW_HEIGHT) {
                         notes[i].active = false;
                         score -= 5;
                         laneFeedbackType[notes[i].lane] = 2; 
                         laneFeedbackTimer[notes[i].lane] = 15;
                         printf("[MISS!] 노트를 놓쳤습니다. 점수: %d / 150\n", score);
-                        if (score <= 0) isRunning = false; 
+                        
+                        if (score <= 0) {
+                            printf("\n 💀 [ 게임 오버... ] 점수가 0점이 되었습니다. 💀\n\n");
+                            isRunning = false; 
+                        }
                     }
                 }
             }
@@ -147,28 +162,27 @@ int main(int argc, char* argv[]) {
             if (laneFeedbackTimer[i] > 0) laneFeedbackTimer[i]--;
         }
 
-        // 3. 화면 그리기
-        SDL_SetRenderDrawColor(renderer, 200, 230, 255, 255);
+        // --- 3. 화면 그리기 ---
+        // 아주 연한 파스텔 파란색 배경 (화살표가 잘 보입니다)
+        SDL_SetRenderDrawColor(renderer, 240, 248, 255, 255);
         SDL_RenderClear(renderer);
 
-        // 판정선 그리기
+        // 판정선
         for (int i = 0; i < 4; i++) {
             if (laneFeedbackTimer[i] > 0) {
-                if (laneFeedbackType[i] == 1) SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);      
-                else if (laneFeedbackType[i] == 2) SDL_SetRenderDrawColor(renderer, 255, 50, 50, 255); 
+                if (laneFeedbackType[i] == 1) SDL_SetRenderDrawColor(renderer, 50, 200, 50, 255);      
+                else if (laneFeedbackType[i] == 2) SDL_SetRenderDrawColor(renderer, 255, 80, 80, 255); 
             } else {
-                SDL_SetRenderDrawColor(renderer, 80, 80, 80, 255); 
+                SDL_SetRenderDrawColor(renderer, 180, 180, 180, 255); // 기본 판정선 색상 (밝은 회색)
             }
             SDL_Rect targetRect = { laneX[i], TARGET_Y, 80, TARGET_HEIGHT };
             SDL_RenderFillRect(renderer, &targetRect); 
         }
 
-        // 🔥 떨어지는 화살표 이미지 그리기 🔥
+        // 화살표
         for (int i = 0; i < MAX_NOTES; i++) {
             if (notes[i].active) {
-                // 이미지가 그려질 위치와 크기 (가로 80, 세로 80의 정사각형)
                 SDL_Rect noteRect = { laneX[notes[i].lane], (int)notes[i].y, 80, 80 };
-                // SDL_RenderFillRect 대신 SDL_RenderCopy를 사용하여 이미지를 입힙니다.
                 SDL_RenderCopy(renderer, arrowTextures[notes[i].lane], NULL, &noteRect);
             }
         }
@@ -177,13 +191,15 @@ int main(int argc, char* argv[]) {
         SDL_Delay(16); 
     }
 
-    // 4. 🔥 자원 해제 (이미지도 메모리에서 해제해야 함)
-    for(int i = 0; i < 4; i++) {
-        SDL_DestroyTexture(arrowTextures[i]);
-    }
+    // --- 4. 자원 해제 ---
+    if (bgm) Mix_FreeMusic(bgm);
+    if (hitSound) Mix_FreeChunk(hitSound);
+    Mix_CloseAudio();
+
+    for(int i = 0; i < 4; i++) SDL_DestroyTexture(arrowTextures[i]);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
-    IMG_Quit(); // 이미지 라이브러리 종료
+    IMG_Quit(); 
     SDL_Quit();
 
     return 0;
