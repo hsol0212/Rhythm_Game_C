@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
         }
 
         // 3. 화면 그리기
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_SetRenderDrawColor(renderer, 200, 230, 255, 255);
         SDL_RenderClear(renderer);
 
         // 판정선 그리기
