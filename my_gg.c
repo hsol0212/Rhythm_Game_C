@@ -103,6 +103,7 @@ int main(int argc, char* argv[]) {
                         score -= 5;
                         laneFeedbackType[pressedLane] = 2; 
                         laneFeedbackTimer[pressedLane] = 15;
+                        printf("[BAD!] 잘못 눌렀습니다. 점수: %d / 150\n", score);
                     }
 
                     if (score >= 150 || score <= 0) isRunning = false; 
@@ -135,6 +136,7 @@ int main(int argc, char* argv[]) {
                         score -= 5;
                         laneFeedbackType[notes[i].lane] = 2; 
                         laneFeedbackTimer[notes[i].lane] = 15;
+                        printf("[MISS!] 노트를 놓쳤습니다. 점수: %d / 150\n", score);
                         if (score <= 0) isRunning = false; 
                     }
                 }
